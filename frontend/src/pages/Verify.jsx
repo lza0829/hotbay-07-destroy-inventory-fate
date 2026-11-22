@@ -13,24 +13,36 @@ export default function Verify() {
     try {
       const r = await api.runVerify()
       setLast(r)
-      setMsg(`互证${r.status} · 漂移 ${r.drift_count}`)
+      setMsg(`互证${r.status} · 漂移 ${r.drift_count} · 幽灵占键 ${r.ghost_count}`)
       reload()
     } catch (e) { setMsg(e.message) }
   }
   return (
     <div className="page">
       <h1>目录互证</h1>
-      <p className="lede">对照湖目录对象清单与分区素材元数据，不是网盘文件浏览器。</p>
+      <p className="lede">对照湖目录在册占键与分区素材元数据；已销毁者不进元数据侧，其保留的幽灵占键单列可核、不计漂移。</p>
       <button type="button" onClick={run}>跑一次互证</button>
       {msg && <p className="msg">{msg}</p>}
       {last && last.drifts?.length > 0 && (
         <ul className="plain">{last.drifts.map((d, i) => <li key={i}>{d.对象键} · {d.问题}</li>)}</ul>
       )}
+      {last && last.ghosts?.length > 0 && (
+        <>
+          <h2>幽灵占键（已销毁留痕，非漂移）</h2>
+          <ul className="plain">{last.ghosts.map((d, i) => <li key={i}>{d.对象键} · 销毁流水 #{d.销毁流水}</li>)}</ul>
+        </>
+      )}
       <h2>目录清单</h2>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>对象键</th><th>字节</th><th>片库间</th><th>扫描时刻</th></tr></thead>
-          <tbody>{inv.map(x => <tr key={x.id}><td>{x.object_key}</td><td>{x.bytes}</td><td>{x.vault_name}</td><td>{x.scanned_at}</td></tr>)}</tbody>
+          <thead><tr><th>对象键</th><th>字节</th><th>片库间</th><th>状态</th><th>销毁流水</th><th>扫描时刻</th></tr></thead>
+          <tbody>{inv.map(x => (
+            <tr key={x.id}>
+              <td>{x.object_key}</td><td>{x.bytes}</td><td>{x.vault_name}</td>
+              <td>{x.state === '幽灵占键' ? <span className="badge badge-ghost">幽灵占键</span> : '在册'}</td>
+              <td>{x.destroy_run_id ?? '—'}</td><td>{x.scanned_at}</td>
+            </tr>
+          ))}</tbody>
         </table>
       </div>
       <h2>互证流水</h2>

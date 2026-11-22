@@ -1,6 +1,6 @@
 from __future__ import annotations
 from fastapi import HTTPException
-from app.db import db
+from app.db import db, INVENTORY_STATE_GHOST, INVENTORY_STATE_LIVE
 from app.services.core import now, require_tier, vault_partition_count
 
 
@@ -23,7 +23,8 @@ def list_partitions(conn=None):
 
 def create_partition(part_key: str, title: str, release_day: str, vault_id: int, tier: str, object_prefix: str, clips: list):
     tier = require_tier(tier)
-    with db() as conn:
+    # BEGIN IMMEDIATE：容量检查与登记写入同笔串行事务，与销毁写互斥，防并发半截占键
+    with db(immediate=True) as conn:
         v = conn.execute("SELECT * FROM vaults WHERE id=?", (vault_id,)).fetchone()
         if not v or not v["active"]:
             raise HTTPException(400, detail="片库间不可用")
@@ -47,8 +48,23 @@ def create_partition(part_key: str, title: str, release_day: str, vault_id: int,
                 "INSERT INTO clips(partition_id, object_key, bytes, entered_day, note) VALUES (?,?,?,?,?)",
                 (pid, ok, int(clip["bytes"]), clip.get("entered_day") or release_day, clip.get("note") or ""),
             )
-            conn.execute(
-                "INSERT OR REPLACE INTO inventory_objects(object_key, bytes, vault_name, scanned_at) VALUES (?,?,?,?)",
-                (ok, int(clip["bytes"]), v["name"], now()),
-            )
+            existing = conn.execute(
+                "SELECT state FROM inventory_objects WHERE object_key=?", (ok,)
+            ).fetchone()
+            if existing and existing["state"] == INVENTORY_STATE_GHOST:
+                # 同键重新登记：幽灵占键回收为在册，清销毁痕迹（销毁流水仍留存可审计）
+                conn.execute(
+                    "UPDATE inventory_objects SET bytes=?, vault_name=?, scanned_at=?, "
+                    "state=?, destroyed_at=NULL, destroy_run_id=NULL WHERE object_key=?",
+                    (int(clip["bytes"]), v["name"], now(), INVENTORY_STATE_LIVE, ok),
+                )
+            elif existing:
+                # 在册占键必有对应 clips，正常不会到这；防御性拒绝
+                raise HTTPException(400, detail=f"目录占键在册冲突：{ok}")
+            else:
+                conn.execute(
+                    "INSERT INTO inventory_objects(object_key, bytes, vault_name, scanned_at, state) "
+                    "VALUES (?,?,?,?,?)",
+                    (ok, int(clip["bytes"]), v["name"], now(), INVENTORY_STATE_LIVE),
+                )
         return {"id": pid, "part_key": part_key, "tier": tier}

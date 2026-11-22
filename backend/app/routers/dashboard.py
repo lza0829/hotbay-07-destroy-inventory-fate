@@ -19,6 +19,9 @@ def overview():
             "待销毁候选": cnt("SELECT COUNT(*) AS c FROM partitions WHERE status='已过期'"),
             "已销毁": cnt("SELECT COUNT(*) AS c FROM partitions WHERE status='已销毁'"),
             "目录对象": cnt("SELECT COUNT(*) AS c FROM inventory_objects"),
+            "幽灵占键": cnt(
+                "SELECT COUNT(*) AS c FROM inventory_objects WHERE state='幽灵占键'"
+            ),
             "最近互证": (
                 lambda r: dict(r) if r else None
             )(conn.execute("SELECT status, drift_count, created_at FROM verify_runs ORDER BY id DESC LIMIT 1").fetchone()),
